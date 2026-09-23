@@ -1,4 +1,5 @@
 
+import time
 import math
 import re
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
-st.caption("VERSION 9 VERIFIED — ROBUST TRAILING P/E + TOP 10 + SEPARATE EARNINGS MATCHES")
+st.caption("VERSION 10 VERIFIED — FRESH SCAN + ROBUST TRAILING P/E + TOP 10")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -608,7 +609,7 @@ def calculate_pe(ticker_obj):
 # ============================================================
 
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def get_stock_fundamentals(ticker, company, index_name):
+def get_stock_fundamentals(ticker, company, index_name, scan_id=None):
     try:
         obj = yf.Ticker(ticker)
 
@@ -912,7 +913,7 @@ st.sidebar.caption("Investment trusts, funds, ETFs/ETCs and similar collective i
 # RUNNERS
 # ============================================================
 
-def run_fundamental_scan():
+def run_fundamental_scan(scan_id):
     rows = []
 
     total = len(constituents)
@@ -930,6 +931,7 @@ def run_fundamental_scan():
             row["Ticker"],
             row["Company"],
             row["Index"],
+            scan_id=scan_id,
         )
 
         rows.append(result)
@@ -1067,7 +1069,7 @@ with tabs[0]:
         type="primary",
         key="combined_button",
     ):
-        value_df, diag, _ = run_fundamental_scan()
+        value_df, diag, _ = run_fundamental_scan(scan_id=time.time_ns())
 
         show_diagnostics(diag)
 
@@ -1147,7 +1149,7 @@ with tabs[1]:
         "Run value screen",
         key="value_button",
     ):
-        value_df, diag, raw = run_fundamental_scan()
+        value_df, diag, raw = run_fundamental_scan(scan_id=time.time_ns())
 
         show_diagnostics(diag)
 
