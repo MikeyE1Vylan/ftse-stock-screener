@@ -17,6 +17,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
+st.caption("Version 6 — strict investment trust/fund exclusion")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -93,50 +94,40 @@ def _extract_constituent_table(html, index_name):
     raise RuntimeError(f"Could not identify constituent table for {index_name}.")
 
 
-def is_investment_vehicle(company, sector=""):
-    """
-    Exclude collective investment vehicles while retaining ordinary operating
-    companies, including normal property companies and operating REITs.
-    """
+INVESTMENT_VEHICLE_TICKERS = {
+    "PCT.L", "ATT.L", "PSH.L", "FCIT.L", "SMT.L", "MNKS.L", "JGGI.L",
+    "BRGE.L", "BRSC.L", "THRG.L", "HRI.L", "USA.L", "PHI.L", "TEM.L",
+    "JMG.L", "IEM.L", "HICL.L", "INPP.L", "3IN.L", "BBGI.L", "TRIG.L",
+    "UKW.L", "FSFL.L", "BSIF.L", "NESF.L", "GCP.L", "SEQI.L", "RCP.L",
+    "PIN.L", "HVPE.L", "ICGT.L", "NBPE.L", "OCI.L", "APAX.L", "CTY.L",
+    "LWDB.L", "MRCH.L", "EDIN.L", "MRC.L", "JAM.L", "SAIN.L", "BNKR.L",
+    "BUT.L", "LTI.L", "SDP.L", "HFEL.L", "AAIF.L", "SOI.L", "JII.L",
+    "BGCG.L", "FSG.L", "SSON.L", "AAS.L", "ATR.L", "STS.L", "MUT.L",
+    "MYI.L", "DIVI.L", "TMPL.L", "CHRY.L", "AUGM.L", "PINT.L", "CORD.L",
+    "DGI9.L"
+}
+
+def is_investment_vehicle(company, sector="", ticker=""):
     name = str(company).lower().strip()
     sector_text = str(sector).lower().strip()
-
-    # Strong sector classifications used by FTSE constituent sources.
-    sector_exclusions = [
-        "closed end investments",
-        "closed-end investments",
-        "investment services",
-        "collective investments",
-        "investment fund",
-        "investment funds",
-        "exchange traded fund",
-        "exchange-traded fund",
-        "etf",
-    ]
-
-    if any(term in sector_text for term in sector_exclusions):
+    ticker_text = str(ticker).upper().strip()
+    if ticker_text in INVESTMENT_VEHICLE_TICKERS:
         return True
-
-    # Strong name indicators. Avoid a broad "investment" match because many
-    # genuine operating companies can contain that word.
-    name_exclusions = [
-        "investment trust",
-        "investment trusts",
-        "income trust",
-        "venture capital trust",
-        " vct",
-        "vct plc",
-        " ucits",
-        " etf",
-        " etc",
-        "exchange traded fund",
-        "exchange-traded fund",
+    name_terms = [
+        "investment trust", "technology trust", "income trust", "venture capital trust",
+        "infrastructure fund", "income fund", "solar fund", "closed-ended fund",
+        "closed end fund", "closed-end fund", "private equity partners",
+        " ucits", " etf", " etc", "exchange traded fund", "exchange-traded fund"
     ]
-
-    if any(term in name for term in name_exclusions):
+    if any(x in name for x in name_terms):
         return True
-
-    return False
+    sector_terms = [
+        "closed end investments", "closed-end investments", "closed ended investments",
+        "closed-ended investments", "investment trust", "investment trusts",
+        "investment fund", "investment funds", "collective investments",
+        "exchange traded fund", "exchange-traded fund", "etf"
+    ]
+    return any(x in sector_text for x in sector_terms)
 
 
 @st.cache_data(ttl=60 * 60 * 12)
@@ -167,7 +158,7 @@ def get_constituents():
     result = result.drop_duplicates(subset=["Ticker"])
 
     result["Excluded investment vehicle"] = result.apply(
-        lambda r: is_investment_vehicle(r["Company"], r.get("Sector", "")),
+        lambda r: is_investment_vehicle(r["Company"], r.get("Sector", ""), r["Ticker"]),
         axis=1,
     )
     result = result[result["Excluded investment vehicle"] == False].copy()
