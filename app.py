@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
-st.caption("VERSION 8 VERIFIED — TOP 10 ALWAYS SHOWN + SEPARATE EARNINGS MATCHES")
+st.caption("VERSION 9 VERIFIED — ROBUST TRAILING P/E + TOP 10 + SEPARATE EARNINGS MATCHES")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -407,26 +407,174 @@ def _latest_positive_net_income(statement):
     return None
 
 
-def calculate_pe(ticker_obj):
-    """
-    Return (pe, method).
+def _positive_number(value):
+    try:
+        value = float(value)
+        if math.isfinite(value) and value > 0:
+            return value
+    except Exception:
+        pass
+    return None
 
-    Preferred:
-      Yahoo trailing P/E
 
-    Fallback:
-      market cap / latest annual net income
-
-    This avoids relying entirely on Yahoo's info endpoint.
-    """
-    info = _safe_info(ticker_obj)
-
-    pe = info.get("trailingPE")
-    if isinstance(pe, (int, float)) and math.isfinite(pe) and pe > 0:
-        return float(pe), "Yahoo trailing P/E"
+def _latest_close(ticker_obj):
+    """Get a recent unadjusted close without relying on the info endpoint."""
+    try:
+        hist = ticker_obj.history(
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+            repair=True,
+        )
+        if hist is not None and not hist.empty and "Close" in hist.columns:
+            closes = pd.to_numeric(hist["Close"], errors="coerce").dropna()
+            if len(closes):
+                return _positive_number(closes.iloc[-1])
+    except Exception:
+        pass
 
     fast = _safe_fast_info(ticker_obj)
+    for key in ("last_price", "regular_market_price"):
+        try:
+            value = fast.get(key)
+        except Exception:
+            try:
+                value = fast[key]
+            except Exception:
+                value = None
+        value = _positive_number(value)
+        if value:
+            return value
 
+    return None
+
+
+def _ttm_net_income(ticker_obj):
+    """
+    Prefer Yahoo's trailing income statement. If unavailable, sum the latest
+    four quarterly net-income observations. This is a true TTM fallback.
+    """
+    candidates = [
+        "Net Income",
+        "Net Income Common Stockholders",
+        "Net Income Including Noncontrolling Interests",
+    ]
+
+    try:
+        stmt = ticker_obj.get_income_stmt(freq="trailing")
+        if stmt is not None and not stmt.empty:
+            for row in candidates:
+                if row in stmt.index:
+                    vals = pd.to_numeric(stmt.loc[row], errors="coerce").dropna()
+                    if len(vals):
+                        return float(vals.iloc[0])
+    except Exception:
+        pass
+
+    try:
+        stmt = ticker_obj.get_income_stmt(freq="quarterly")
+        if stmt is not None and not stmt.empty:
+            for row in candidates:
+                if row in stmt.index:
+                    s = pd.to_numeric(stmt.loc[row], errors="coerce").dropna()
+                    if len(s) >= 4:
+                        dated = []
+                        for k, v in s.items():
+                            try:
+                                dated.append((pd.to_datetime(k), float(v)))
+                            except Exception:
+                                pass
+                        dated.sort(key=lambda x: x[0], reverse=True)
+                        if len(dated) >= 4:
+                            return sum(v for _, v in dated[:4])
+    except Exception:
+        pass
+
+    return None
+
+
+def _shares_outstanding(ticker_obj, info=None):
+    """Retrieve current/recent shares outstanding from several Yahoo paths."""
+    fast = _safe_fast_info(ticker_obj)
+    for key in ("shares", "shares_outstanding"):
+        try:
+            value = fast.get(key)
+        except Exception:
+            try:
+                value = fast[key]
+            except Exception:
+                value = None
+        value = _positive_number(value)
+        if value:
+            return value
+
+    if info:
+        value = _positive_number(info.get("sharesOutstanding"))
+        if value:
+            return value
+
+    try:
+        shares = ticker_obj.get_shares_full(
+            start=(datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+        )
+        if shares is not None and len(shares):
+            vals = pd.to_numeric(shares, errors="coerce").dropna()
+            if len(vals):
+                return _positive_number(vals.iloc[-1])
+    except Exception:
+        pass
+
+    return None
+
+
+def calculate_pe(ticker_obj):
+    """
+    Return (positive trailing P/E, method).
+
+    Hierarchy:
+      1. Yahoo current valuation-measures P/E.
+      2. Yahoo info trailingPE.
+      3. Current price / trailingEps.
+      4. Market cap / true TTM net income.
+      5. Current price / (TTM net income / shares outstanding).
+
+    Annual net income is deliberately NOT used as a trailing-P/E substitute.
+    """
+    # 1) Valuation endpoint — current P/E without depending on get_info().
+    try:
+        valuation = ticker_obj.get_valuation_measures(freq="trailing", periods=0)
+        if valuation is not None and not valuation.empty:
+            for label in (
+                "Trailing P/E",
+                "Trailing PE",
+                "Price/Earnings",
+                "P/E",
+                "Pe Ratio",
+            ):
+                if label in valuation.index and "Current" in valuation.columns:
+                    pe = _positive_number(valuation.loc[label, "Current"])
+                    if pe:
+                        return pe, "Yahoo valuation trailing P/E"
+    except Exception:
+        pass
+
+    info = _safe_info(ticker_obj)
+
+    # 2) Standard Yahoo trailing P/E.
+    pe = _positive_number(info.get("trailingPE"))
+    if pe:
+        return pe, "Yahoo info trailing P/E"
+
+    # 3) Price divided by Yahoo trailing EPS.
+    price = _latest_close(ticker_obj)
+    trailing_eps = _positive_number(info.get("trailingEps"))
+    if price and trailing_eps:
+        pe = price / trailing_eps
+        if math.isfinite(pe) and pe > 0:
+            return pe, "Price / Yahoo trailing EPS"
+
+    # 4) Market cap divided by true trailing-twelve-month net income.
+    fast = _safe_fast_info(ticker_obj)
     market_cap = None
     try:
         market_cap = fast.get("market_cap")
@@ -435,22 +583,22 @@ def calculate_pe(ticker_obj):
             market_cap = fast["market_cap"]
         except Exception:
             pass
+    market_cap = _positive_number(market_cap) or _positive_number(info.get("marketCap"))
 
-    if not market_cap:
-        market_cap = info.get("marketCap")
+    ttm_net_income = _ttm_net_income(ticker_obj)
+    if market_cap and ttm_net_income and ttm_net_income > 0:
+        pe = market_cap / ttm_net_income
+        if math.isfinite(pe) and pe > 0:
+            return pe, "Market cap / TTM net income"
 
-    if market_cap:
-        try:
-            annual = ticker_obj.financials
-            net_income = _latest_positive_net_income(annual)
-
-            if net_income and net_income > 0:
-                approx_pe = float(market_cap) / float(net_income)
-
-                if math.isfinite(approx_pe) and approx_pe > 0:
-                    return approx_pe, "Market cap / latest annual net income"
-        except Exception:
-            pass
+    # 5) Reconstruct TTM EPS from net income and shares, then divide price.
+    shares = _shares_outstanding(ticker_obj, info)
+    if price and shares and ttm_net_income and ttm_net_income > 0:
+        ttm_eps = ttm_net_income / shares
+        if ttm_eps > 0:
+            pe = price / ttm_eps
+            if math.isfinite(pe) and pe > 0:
+                return pe, "Price / reconstructed TTM EPS"
 
     return None, None
 
@@ -1152,7 +1300,7 @@ The app first tries Yahoo's published trailing P/E.
 
 If that is unavailable, it attempts an approximate P/E using:
 
-`market capitalisation / latest annual net income`
+`Yahoo valuation P/E`, `Yahoo trailing P/E`, `price / trailing EPS`, or `market capitalisation / true TTM net income`
 
 The table tells you which method was used.
 
