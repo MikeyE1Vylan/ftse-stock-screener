@@ -741,11 +741,6 @@ with st.sidebar:
         help="Leave at 0 for no maximum.",
     )
 
-    show_pass_only = st.checkbox(
-        "Show only exact earnings matches",
-        value=False,
-    )
-
     st.markdown(
         """
 **Important**
@@ -814,12 +809,6 @@ def run_fundamental_scan():
             pe_available["P/E"] <= max_pe
         ]
 
-    if show_pass_only:
-        pe_available = pe_available[
-            pe_available["Earnings rule"]
-            == "PASS — exactly last 2 increased"
-        ]
-
     pe_available = pe_available.sort_values(
         ["P/E", "Company"]
     )
@@ -833,12 +822,8 @@ def run_fundamental_scan():
         "pe_available": len(
             raw[raw["_has_pe"] == True]
         ),
-        "exact_matches": len(
-            raw[
-                raw["Earnings rule"]
-                == "PASS — exactly last 2 increased"
-            ]
-        ),
+        "four_period_eps": len(raw[raw["Earnings rule"] != "Insufficient earnings history"]),
+        "exact_matches": len(raw[raw["Earnings rule"] == "PASS — exactly last 2 increased"]),
         "returned": len(result),
     }
 
@@ -892,27 +877,12 @@ def run_activity_scan():
 
 
 def show_diagnostics(diag):
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "FTSE shares checked",
-        diag["constituents"]
-    )
-
-    c2.metric(
-        "P/E available",
-        diag["pe_available"]
-    )
-
-    c3.metric(
-        "Exact earnings matches",
-        diag["exact_matches"]
-    )
-
-    c4.metric(
-        "Rows returned",
-        diag["returned"]
-    )
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Operating companies checked", diag["constituents"])
+    c2.metric("Positive P/E available", diag["pe_available"])
+    c3.metric("4 comparable EPS periods", diag["four_period_eps"])
+    c4.metric("Exact earnings matches", diag["exact_matches"])
+    c5.metric("Main rows returned", diag["returned"])
 
 
 # ============================================================
@@ -1056,6 +1026,32 @@ with tabs[1]:
                 mime="text/csv",
             )
 
+        st.markdown("---")
+        st.subheader("Exact two-period earnings matches — all qualifying companies")
+        exact_df = raw[
+            (raw["_has_pe"] == True)
+            & (raw["Earnings rule"] == "PASS — exactly last 2 increased")
+        ].copy()
+        exact_df["P/E"] = pd.to_numeric(exact_df["P/E"], errors="coerce")
+        exact_df = exact_df.dropna(subset=["P/E"])
+        if max_pe > 0:
+            exact_df = exact_df[exact_df["P/E"] <= max_pe]
+        exact_df = exact_df.sort_values(["P/E", "Company"]).drop(columns=["_has_pe"], errors="ignore")
+        st.caption(
+            "This separate table shows every company for which four comparable EPS periods "
+            "were available and the exact earnings rule passed. It never limits the main top-10 table."
+        )
+        if exact_df.empty:
+            st.info("No exact matches were identified from the comparable EPS data returned in this run.")
+        else:
+            st.dataframe(exact_df, hide_index=True, use_container_width=True)
+            st.download_button(
+                "Download exact earnings matches CSV",
+                exact_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"ftse_exact_earnings_matches_{datetime.now():%Y-%m-%d}.csv",
+                mime="text/csv",
+            )
+
 
 # ----------------------------
 # MOST DISCUSSED
@@ -1160,13 +1156,11 @@ If that is unavailable, it attempts an approximate P/E using:
 
 The table tells you which method was used.
 
-### Always-return behaviour
+### Main top-10 and exact-match behaviour
 
-Unless **Show only exact earnings matches** is ticked, the value report does not require a company to pass the earnings rule.
+The **main value report always returns the requested number of lowest positive-P/E operating companies** (10 by default), provided that many companies have usable P/E data. Earnings status is shown alongside each company and never reduces the main table.
 
-It ranks all shares with a usable positive P/E from lowest to highest and displays their earnings status alongside them.
-
-Therefore the normal report should return a top 10 even when fewer than ten companies satisfy the exact earnings condition.
+A separate **Exact two-period earnings matches** table shows every company that passes the earnings rule. The diagnostics also show how many companies had four comparable EPS periods available.
 
 ### Discussion activity
 
