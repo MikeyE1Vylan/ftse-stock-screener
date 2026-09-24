@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
-st.caption("VERSION 11 VERIFIED — STRICT INVESTMENT-VEHICLE EXCLUSION + FRESH SCAN")
+st.caption("VERSION 12 VERIFIED — EXACT 2-PERIOD EPS FILTER + COMPACT TABLE")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -966,7 +966,13 @@ def run_fundamental_scan(scan_id):
         ["P/E", "Company"]
     )
 
-    result = pe_available.head(
+    # Main screen: ONLY companies passing the user's exact two-period
+    # earnings-improvement rule, then ranked by lowest positive P/E.
+    qualifying = pe_available[
+        pe_available["Earnings rule"] == "PASS — exactly last 2 increased"
+    ].copy()
+
+    result = qualifying.head(
         int(result_count)
     ).copy()
 
@@ -1143,9 +1149,9 @@ with tabs[1]:
     )
 
     st.write(
-        "This report ALWAYS ranks the shares with usable positive "
-        "P/E data from lowest to highest. The earnings-status column "
-        "shows whether each stock passes your exact two-period rule."
+        "This report first requires the exact two-period EPS improvement "
+        "rule, then ranks the qualifying shares by positive P/E from lowest "
+        "to highest."
     )
 
     if st.button(
@@ -1161,10 +1167,30 @@ with tabs[1]:
                 "No shares with usable positive P/E data were returned."
             )
         else:
+            compact_columns = [
+                "Company", "Ticker", "Index", "P/E", "Earnings frequency",
+                "Latest EPS", "Previous EPS", "Period -2 EPS", "Period -3 EPS",
+            ]
+            compact_columns = [c for c in compact_columns if c in value_df.columns]
             st.dataframe(
-                value_df,
+                value_df[compact_columns],
                 hide_index=True,
                 use_container_width=True,
+                column_config={
+                    "Company": st.column_config.TextColumn("Company", width="medium"),
+                    "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                    "Index": st.column_config.TextColumn("Index", width="small"),
+                    "P/E": st.column_config.NumberColumn("P/E", format="%.2f", width="small"),
+                    "Earnings frequency": st.column_config.TextColumn("Frequency", width="small"),
+                    "Latest EPS": st.column_config.NumberColumn("Latest EPS", format="%.4f", width="small"),
+                    "Previous EPS": st.column_config.NumberColumn("Prev EPS", format="%.4f", width="small"),
+                    "Period -2 EPS": st.column_config.NumberColumn("-2 EPS", format="%.4f", width="small"),
+                    "Period -3 EPS": st.column_config.NumberColumn("-3 EPS", format="%.4f", width="small"),
+                },
+            )
+            st.caption(
+                "Main table shows the key comparison columns. The downloaded CSV "
+                "retains the full dates, P/E method, earnings rule and data-source details."
             )
 
             st.download_button(
@@ -1191,8 +1217,8 @@ with tabs[1]:
             exact_df = exact_df[exact_df["P/E"] <= max_pe]
         exact_df = exact_df.sort_values(["P/E", "Company"]).drop(columns=["_has_pe"], errors="ignore")
         st.caption(
-            "Separate table of every positive-P/E company passing the exact earnings rule. "
-            "It never reduces the main top-10 table."
+            "Full list of every positive-P/E company passing the exact earnings rule. "
+            "The main table above shows the 10 lowest-P/E companies from this same qualifying list."
         )
         if exact_df.empty:
             st.info("No exact matches were identified from the comparable EPS data returned in this run.")
