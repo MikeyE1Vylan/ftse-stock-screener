@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
-st.caption("VERSION 10 VERIFIED — FRESH SCAN + ROBUST TRAILING P/E + TOP 10")
+st.caption("VERSION 11 VERIFIED — STRICT INVESTMENT-VEHICLE EXCLUSION + FRESH SCAN")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -105,7 +105,7 @@ INVESTMENT_VEHICLE_TICKERS = {
     "BUT.L", "LTI.L", "SDP.L", "HFEL.L", "AAIF.L", "SOI.L", "JII.L",
     "BGCG.L", "FSG.L", "SSON.L", "AAS.L", "ATR.L", "STS.L", "MUT.L",
     "MYI.L", "DIVI.L", "TMPL.L", "CHRY.L", "AUGM.L", "PINT.L", "CORD.L",
-    "DGI9.L"
+    "DGI9.L", "VEIL.L", "SYNC.L", "III.L"
 }
 
 def is_investment_vehicle(company, sector="", ticker=""):
@@ -118,6 +118,8 @@ def is_investment_vehicle(company, sector="", ticker=""):
         "investment trust", "technology trust", "income trust", "venture capital trust",
         "infrastructure fund", "income fund", "solar fund", "closed-ended fund",
         "closed end fund", "closed-end fund", "private equity partners",
+        "investment company", "investment companies", "investment holdings",
+        "enterprise investments", "capital investment trust",
         " ucits", " etf", " etc", "exchange traded fund", "exchange-traded fund"
     ]
     if any(x in name for x in name_terms):
@@ -125,7 +127,8 @@ def is_investment_vehicle(company, sector="", ticker=""):
     sector_terms = [
         "closed end investments", "closed-end investments", "closed ended investments",
         "closed-ended investments", "investment trust", "investment trusts",
-        "investment fund", "investment funds", "collective investments",
+        "investment fund", "investment funds", "investment company",
+        "investment companies", "collective investments", "collective investment",
         "exchange traded fund", "exchange-traded fund", "etf"
     ]
     return any(x in sector_text for x in sector_terms)
