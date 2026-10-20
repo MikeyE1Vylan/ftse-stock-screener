@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("FTSE Value + Stock Attention Screener")
-st.caption("VERSION 12 VERIFIED — EXACT 2-PERIOD EPS FILTER + COMPACT TABLE")
+st.caption("VERSION 13 VERIFIED — EXCLUDE BANKS, LENDERS & FUND MANAGERS")
 st.caption(
     "FTSE 100 + FTSE 250 operating companies • trusts/funds/ETFs excluded • lowest P/E • "
     "7-day / 30-day online discussion activity"
@@ -108,6 +108,48 @@ INVESTMENT_VEHICLE_TICKERS = {
     "DGI9.L", "VEIL.L", "SYNC.L", "III.L"
 }
 
+# Version 13: exclude operating banks, lenders, and investment/fund managers.
+# Insurers and other non-lending financial-service businesses remain eligible.
+EXCLUDED_FINANCIAL_TICKERS = {
+    "BARC.L", "NWG.L", "LLOY.L", "HSBA.L", "STAN.L", "MTRO.L",
+    "PAG.L", "OSB.L", "CBG.L", "TBCG.L", "VANQ.L", "VMUK.L",
+    "JUP.L", "SDR.L", "MNG.L", "ABDN.L", "ASHM.L", "POLR.L",
+    "FCH.L", "STJ.L", "RAT.L", "AJB.L", "HL.L", "IHP.L",
+    "PCT.L", "PPET.L",
+}
+
+EXCLUDED_FINANCIAL_SECTOR_TERMS = (
+    "banking", "banks", "bankers", "mortgage finance", "mortgage lender",
+    "consumer lending", "consumer finance", "credit services",
+    "asset management", "fund management", "investment management",
+    "wealth management", "investment banking", "investment services",
+)
+
+EXCLUDED_FINANCIAL_NAME_TERMS = (
+    "banking group", "bank group", "bank plc", "bank limited",
+    "fund management", "asset management", "investment management",
+    "wealth management", "private equity trust", "mortgage lender",
+    "consumer finance",
+)
+
+def is_excluded_financial(company, sector="", ticker=""):
+    name = str(company).lower().strip()
+    sector_text = str(sector).lower().strip()
+    ticker_text = str(ticker).upper().strip()
+
+    if ticker_text in EXCLUDED_FINANCIAL_TICKERS:
+        return True
+    if any(term in name for term in EXCLUDED_FINANCIAL_NAME_TERMS):
+        return True
+    if any(term in sector_text for term in EXCLUDED_FINANCIAL_SECTOR_TERMS):
+        # Do not exclude insurers merely because their sector has
+        # financial-services terminology alongside an insurance label.
+        if "insurance" in sector_text or "insurer" in sector_text:
+            return False
+        return True
+    return False
+
+
 def is_investment_vehicle(company, sector="", ticker=""):
     name = str(company).lower().strip()
     sector_text = str(sector).lower().strip()
@@ -162,7 +204,7 @@ def get_constituents():
     result = result.drop_duplicates(subset=["Ticker"])
 
     result["Excluded investment vehicle"] = result.apply(
-        lambda r: is_investment_vehicle(r["Company"], r.get("Sector", ""), r["Ticker"]),
+        lambda r: (is_investment_vehicle(r["Company"], r.get("Sector", ""), r["Ticker"]) or is_excluded_financial(r["Company"], r.get("Sector", ""), r["Ticker"])),
         axis=1,
     )
     result = result[result["Excluded investment vehicle"] == False].copy()
@@ -909,7 +951,7 @@ constituents = all_constituents[
 ].reset_index(drop=True)
 
 st.sidebar.metric("Operating-company universe", len(constituents))
-st.sidebar.caption("Investment trusts, funds, ETFs/ETCs and similar collective investment vehicles are excluded before all screens.")
+st.sidebar.caption("Investment vehicles, banks, lenders and fund managers are excluded. Insurers remain eligible.")
 
 
 # ============================================================
